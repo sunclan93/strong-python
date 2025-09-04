@@ -1,530 +1,543 @@
 """
-第一周 Day 2：高级数据结构与 Collections 模块
-学习目标：掌握 Python 内置的高级数据结构，并学会设计自定义数据结构
+第一周 Day 3：装饰器原理与高级应用
+学习目标：深入理解装饰器的工作原理，掌握高级装饰器设计
 
 今日重点：
-1. Collections 模块深入使用
-2. 自定义数据结构设计思维
-3. 时间复杂度分析
-4. 实战：实现 LRU 缓存系统
+1. 函数是第一类对象的深层理解
+2. 装饰器的工作原理和执行时机
+3. 带参数装饰器的实现
+4. 类装饰器 vs 函数装饰器
+5. functools.wraps 的作用和使用
 """
 
-from collections import (
-    defaultdict, Counter, deque, namedtuple, 
-    OrderedDict, ChainMap, UserDict
-)
-from typing import Any, Optional, Iterator
 import time
+import functools
+from typing import Any, Callable, Dict, List
+from datetime import datetime
+import threading
+import warnings
 
 
-# ==== 第一部分：Collections 模块深度探索 ====
-print("=== Collections 模块深度探索 ===\n")
+# ==== 第一部分：函数是第一类对象 ====
+print("=== 函数是第一类对象 ===\n")
 
-def demonstrate_defaultdict():
-    """演示 defaultdict 的强大功能"""
-    print("1️⃣ defaultdict - 永不报 KeyError 的字典")
+def demonstrate_function_as_object():
+    """演示函数作为第一类对象的特性"""
     
-    # 传统方式：需要检查键是否存在
-    traditional_dict = {}
-    text = "hello world hello python"
-    for word in text.split():
-        if word in traditional_dict:
-            traditional_dict[word] += 1
-        else:
-            traditional_dict[word] = 1
-    print(f"传统方式统计词频: {traditional_dict}")
+    def greet(name):
+        """一个简单的函数"""
+        return f"Hello, {name}!"
     
-    # defaultdict 方式：自动初始化
-    word_count = defaultdict(int)  # 默认值为 0
-    for word in text.split():
-        word_count[word] += 1  # 不存在时自动创建并设为 0
-    print(f"defaultdict 统计词频: {dict(word_count)}")
+    print("1️⃣ 函数是对象，有属性和方法")
+    print(f"函数名: {greet.__name__}")
+    print(f"函数文档: {greet.__doc__}")
+    print(f"函数类型: {type(greet)}")
+    print(f"函数模块: {greet.__module__}")
+    print()
     
-    # 更复杂的例子：分组
-    students = [
-        ('张三', '数学', 95),
-        ('李四', '数学', 87),
-        ('张三', '英语', 92),
-        ('王五', '数学', 78),
-        ('李四', '英语', 88)
-    ]
+    print("2️⃣ 函数可以赋值给变量")
+    say_hello = greet  # 函数赋值
+    print(f"通过变量调用: {say_hello('张三')}")
+    print(f"两个变量指向同一个函数: {greet is say_hello}")
+    print()
     
-    # 按学科分组学生成绩
-    subject_scores = defaultdict(list)
-    for name, subject, score in students:
-        subject_scores[subject].append((name, score))
+    print("3️⃣ 函数可以作为参数传递")
+    def call_function(func, arg):
+        return func(arg)
     
-    print(f"按学科分组: {dict(subject_scores)}")
+    result = call_function(greet, "李四")
+    print(f"作为参数传递: {result}")
+    print()
+    
+    print("4️⃣ 函数可以作为返回值")
+    def get_greeting_function():
+        return greet
+    
+    func = get_greeting_function()
+    print(f"作为返回值: {func('王五')}")
+    print()
+    
+    print("5️⃣ 函数可以存储在数据结构中")
+    function_list = [greet, say_hello]
+    function_dict = {'greet': greet, 'say': say_hello}
+    
+    for func in function_list:
+        print(f"列表中的函数: {func('赵六')}")
+    
+    print(f"字典中的函数: {function_dict['greet']('钱七')}")
     print()
 
-def demonstrate_counter():
-    """演示 Counter 的统计功能"""
-    print("2️⃣ Counter - 强大的计数器")
+demonstrate_function_as_object()
+
+
+# ==== 第二部分：装饰器的本质 ====
+print("=== 装饰器的本质 ===\n")
+
+def understand_decorator_essence():
+    """理解装饰器的本质"""
     
-    # 基本统计
-    text = "abracadabra"
-    char_count = Counter(text)
-    print(f"字符统计: {char_count}")
-    print(f"最常见的 2 个字符: {char_count.most_common(2)}")
+    print("装饰器就是一个返回函数的函数！")
+    print()
     
-    # 列表统计
-    votes = ['apple', 'banana', 'apple', 'orange', 'banana', 'apple']
-    vote_count = Counter(votes)
-    print(f"投票统计: {vote_count}")
+    # 最简单的装饰器
+    def my_decorator(func):
+        """最基础的装饰器"""
+        print(f"🔧 装饰器正在装饰函数: {func.__name__}")
+        
+        def wrapper(*args, **kwargs):
+            print(f"⚡ 函数 {func.__name__} 调用前")
+            result = func(*args, **kwargs)
+            print(f"✅ 函数 {func.__name__} 调用后")
+            return result
+        
+        return wrapper
     
-    # Counter 运算
-    counter1 = Counter(['a', 'b', 'c', 'a'])
-    counter2 = Counter(['a', 'b', 'b', 'd'])
-    print(f"Counter1: {counter1}")
-    print(f"Counter2: {counter2}")
-    print(f"相加: {counter1 + counter2}")
-    print(f"相减: {counter1 - counter2}")
-    print(f"交集: {counter1 & counter2}")
-    print(f"并集: {counter1 | counter2}")
+    # 手动装饰（不用 @ 语法）
+    def original_function():
+        print("🎯 这是原始函数")
+        return "原始返回值"
+    
+    print("1️⃣ 手动装饰过程：")
+    decorated_function = my_decorator(original_function)
+    result = decorated_function()
+    print(f"返回值: {result}")
+    print()
+    
+    # 使用 @ 语法糖
+    print("2️⃣ 使用 @ 语法糖：")
+    @my_decorator
+    def auto_decorated_function():
+        print("🎯 这是自动装饰的函数")
+        return "装饰后的返回值"
+    
+    result = auto_decorated_function()
+    print(f"返回值: {result}")
+    print()
+    
+    print("3️⃣ @ 语法糖的本质：")
+    print("@my_decorator")
+    print("def func(): pass")
+    print("等同于：")
+    print("def func(): pass")
+    print("func = my_decorator(func)")
     print()
 
-def demonstrate_deque():
-    """演示 deque 的双端队列功能"""
-    print("3️⃣ deque - 高效的双端队列")
+understand_decorator_essence()
+
+
+# ==== 第三部分：装饰器的执行时机 ====
+print("=== 装饰器的执行时机 ===\n")
+
+def demonstrate_execution_timing():
+    """演示装饰器的执行时机"""
     
-    # 基本操作
-    d = deque([1, 2, 3])
-    print(f"初始 deque: {d}")
+    print("装饰器在函数定义时执行，不是调用时！")
+    print()
     
-    # 两端添加
-    d.appendleft(0)  # 左端添加
-    d.append(4)      # 右端添加
-    print(f"两端添加后: {d}")
+    def timing_decorator(func):
+        print(f"🕐 装饰器在定义时执行: {func.__name__}")
+        
+        def wrapper(*args, **kwargs):
+            print(f"🚀 wrapper 在调用时执行: {func.__name__}")
+            return func(*args, **kwargs)
+        
+        return wrapper
     
-    # 两端删除
-    left = d.popleft()   # 左端删除
-    right = d.pop()      # 右端删除
-    print(f"删除了 {left} 和 {right}，剩余: {d}")
+    print("定义函数时：")
+    @timing_decorator
+    def example_function():
+        print("🎯 函数体执行")
+        return "结果"
     
-    # 旋转
-    d.rotate(1)   # 向右旋转 1 位
-    print(f"向右旋转 1 位: {d}")
-    d.rotate(-2)  # 向左旋转 2 位
-    print(f"向左旋转 2 位: {d}")
+    print("\n第一次调用时：")
+    result1 = example_function()
     
-    # 限制长度的 deque
-    limited_deque = deque(maxlen=3)
-    for i in range(5):
-        limited_deque.append(i)
-        print(f"添加 {i}: {limited_deque}")
+    print("\n第二次调用时：")
+    result2 = example_function()
     print()
 
-def demonstrate_namedtuple():
-    """演示 namedtuple 的结构化数据"""
-    print("4️⃣ namedtuple - 带名字的元组")
+demonstrate_execution_timing()
+
+
+# ==== 第四部分：preserving 函数信息 ====
+print("=== 保持函数信息：functools.wraps ===\n")
+
+def demonstrate_functools_wraps():
+    """演示 functools.wraps 的重要性"""
     
-    # 创建 namedtuple 类
-    Point = namedtuple('Point', ['x', 'y'])
-    Student = namedtuple('Student', ['name', 'age', 'grade'])
+    # 没有使用 wraps 的装饰器
+    def bad_decorator(func):
+        def wrapper(*args, **kwargs):
+            """这是 wrapper 的文档"""
+            return func(*args, **kwargs)
+        return wrapper
     
-    # 创建实例
-    p1 = Point(1, 2)
-    p2 = Point(x=3, y=4)
+    # 使用 wraps 的装饰器
+    def good_decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            """这是 wrapper 的文档"""
+            return func(*args, **kwargs)
+        return wrapper
     
-    print(f"点 p1: {p1}")
-    print(f"p1.x = {p1.x}, p1.y = {p1.y}")
-    print(f"p1[0] = {p1[0]}, p1[1] = {p1[1]}")  # 仍可按索引访问
+    @bad_decorator
+    def bad_function():
+        """这是原始函数的文档"""
+        pass
     
-    # 不可变性
-    try:
-        p1.x = 10
-    except AttributeError as e:
-        print(f"namedtuple 不可变: {e}")
+    @good_decorator
+    def good_function():
+        """这是原始函数的文档"""
+        pass
     
-    # 有用的方法
-    student = Student('张三', 20, 'A')
-    print(f"学生信息: {student}")
-    print(f"转为字典: {student._asdict()}")
+    print("❌ 没有使用 @functools.wraps:")
+    print(f"函数名: {bad_function.__name__}")
+    print(f"函数文档: {bad_function.__doc__}")
+    print()
     
-    # 替换字段（返回新对象）
-    older_student = student._replace(age=21)
-    print(f"年龄+1后: {older_student}")
+    print("✅ 使用了 @functools.wraps:")
+    print(f"函数名: {good_function.__name__}")
+    print(f"函数文档: {good_function.__doc__}")
     print()
 
+demonstrate_functools_wraps()
 
-# ==== 第二部分：自定义数据结构设计 ====
-print("=== 自定义数据结构设计 ===\n")
 
-class Stack:
-    """栈的实现 - LIFO (后进先出)"""
+# ==== 第五部分：带参数的装饰器 ====
+print("=== 带参数的装饰器 ===\n")
+
+def create_parametrized_decorators():
+    """创建带参数的装饰器"""
+    
+    # 带参数的装饰器需要三层函数
+    def repeat(times):
+        """重复执行装饰器"""
+        print(f"🔧 创建重复 {times} 次的装饰器")
+        
+        def decorator(func):
+            print(f"🎯 装饰函数: {func.__name__}")
+            
+            @functools.wraps(func)
+            def wrapper(*args, **kwargs):
+                print(f"🔄 准备执行 {times} 次")
+                results = []
+                for i in range(times):
+                    print(f"  第 {i+1} 次执行:")
+                    result = func(*args, **kwargs)
+                    results.append(result)
+                return results
+            
+            return wrapper
+        return decorator
+    
+    # 使用带参数的装饰器
+    @repeat(times=3)
+    def say_hello(name):
+        message = f"Hello, {name}!"
+        print(f"    {message}")
+        return message
+    
+    print("调用被装饰的函数：")
+    results = say_hello("Python")
+    print(f"所有结果: {results}")
+    print()
+
+create_parametrized_decorators()
+
+
+# ==== 第六部分：类装饰器 ====
+print("=== 类装饰器 ===\n")
+
+class CallCounter:
+    """类装饰器：统计函数调用次数"""
+    
+    def __init__(self, func):
+        print(f"🏗️ 初始化类装饰器，装饰: {func.__name__}")
+        self.func = func
+        self.count = 0
+        # 保持函数信息
+        functools.update_wrapper(self, func)
+    
+    def __call__(self, *args, **kwargs):
+        self.count += 1
+        print(f"📊 函数 {self.func.__name__} 第 {self.count} 次调用")
+        return self.func(*args, **kwargs)
+    
+    def get_count(self):
+        return self.count
+
+# 使用类装饰器
+@CallCounter
+def greet_with_counter(name):
+    return f"Hi, {name}!"
+
+print("测试类装饰器:")
+print(greet_with_counter("Alice"))
+print(greet_with_counter("Bob"))
+print(f"调用次数: {greet_with_counter.get_count()}")
+print()
+
+
+# ==== 第七部分：实战项目 - 性能监控装饰器系统 ====
+print("=== 实战项目：性能监控装饰器系统 ===\n")
+
+class PerformanceMonitor:
+    """性能监控装饰器系统"""
     
     def __init__(self):
-        self._items = []
+        self.stats = {}
+        self.lock = threading.Lock()
     
-    def push(self, item):
-        """入栈"""
-        self._items.append(item)
-    
-    def pop(self):
-        """出栈"""
-        if self.is_empty():
-            raise IndexError("pop from empty stack")
-        return self._items.pop()
-    
-    def peek(self):
-        """查看栈顶元素"""
-        if self.is_empty():
-            raise IndexError("peek from empty stack")
-        return self._items[-1]
-    
-    def is_empty(self):
-        """检查是否为空"""
-        return len(self._items) == 0
-    
-    def size(self):
-        """获取栈大小"""
-        return len(self._items)
-    
-    def __str__(self):
-        return f"Stack({self._items})"
-
-def test_stack():
-    """测试栈的功能"""
-    print("自定义栈测试:")
-    stack = Stack()
-    
-    # 入栈
-    for i in [1, 2, 3, 4]:
-        stack.push(i)
-        print(f"入栈 {i}: {stack}")
-    
-    # 出栈
-    while not stack.is_empty():
-        item = stack.pop()
-        print(f"出栈 {item}: {stack}")
-    print()
-
-class CircularBuffer:
-    """环形缓冲区 - 固定大小的缓冲区"""
-    
-    def __init__(self, capacity):
-        self.capacity = capacity
-        self._buffer = [None] * capacity
-        self._head = 0  # 写入位置
-        self._tail = 0  # 读取位置
-        self._size = 0  # 当前大小
-    
-    def write(self, item):
-        """写入数据"""
-        self._buffer[self._head] = item
-        self._head = (self._head + 1) % self.capacity
-        
-        if self._size < self.capacity:
-            self._size += 1
-        else:
-            # 缓冲区满了，移动 tail
-            self._tail = (self._tail + 1) % self.capacity
-    
-    def read(self):
-        """读取数据"""
-        if self._size == 0:
-            raise IndexError("read from empty buffer")
-        
-        item = self._buffer[self._tail]
-        self._tail = (self._tail + 1) % self.capacity
-        self._size -= 1
-        return item
-    
-    def is_empty(self):
-        return self._size == 0
-    
-    def is_full(self):
-        return self._size == self.capacity
-    
-    def __str__(self):
-        if self.is_empty():
-            return "CircularBuffer([])"
-        
-        items = []
-        current = self._tail
-        for _ in range(self._size):
-            items.append(self._buffer[current])
-            current = (current + 1) % self.capacity
-        return f"CircularBuffer({items})"
-
-def test_circular_buffer():
-    """测试环形缓冲区"""
-    print("环形缓冲区测试:")
-    buffer = CircularBuffer(3)
-    
-    # 写入数据
-    for i in [1, 2, 3]:
-        buffer.write(i)
-        print(f"写入 {i}: {buffer}")
-    
-    # 缓冲区满了，继续写入
-    for i in [4, 5]:
-        buffer.write(i)
-        print(f"写入 {i} (覆盖): {buffer}")
-    
-    # 读取数据
-    while not buffer.is_empty():
-        item = buffer.read()
-        print(f"读取 {item}: {buffer}")
-    print()
-
-
-# ==== 第三部分：时间复杂度分析实战 ====
-print("=== 时间复杂度分析实战 ===\n")
-
-def analyze_list_operations():
-    """分析列表操作的时间复杂度"""
-    print("列表操作时间复杂度分析:")
-    
-    # 测试数据
-    data = list(range(100000))
-    
-    # append - O(1) 均摊
-    start_time = time.time()
-    test_list = []
-    for i in range(10000):
-        test_list.append(i)
-    append_time = time.time() - start_time
-    print(f"append 10000 次耗时: {append_time:.4f}s - O(1) 均摊")
-    
-    # insert(0, x) - O(n)
-    start_time = time.time()
-    test_list = []
-    for i in range(1000):  # 少一些，因为很慢
-        test_list.insert(0, i)
-    insert_time = time.time() - start_time
-    print(f"insert(0, x) 1000 次耗时: {insert_time:.4f}s - O(n)")
-    
-    # in 操作 - O(n)
-    start_time = time.time()
-    for i in range(1000):
-        _ = 99999 in data
-    search_time = time.time() - start_time
-    print(f"线性搜索 1000 次耗时: {search_time:.4f}s - O(n)")
-    print()
-
-def analyze_dict_operations():
-    """分析字典操作的时间复杂度"""
-    print("字典操作时间复杂度分析:")
-    
-    # 创建大字典
-    large_dict = {i: f"value_{i}" for i in range(100000)}
-    
-    # 查找 - O(1) 平均
-    start_time = time.time()
-    for i in range(10000):
-        _ = large_dict.get(99999)
-    dict_search_time = time.time() - start_time
-    print(f"字典查找 10000 次耗时: {dict_search_time:.4f}s - O(1) 平均")
-    
-    # 插入 - O(1) 平均
-    start_time = time.time()
-    test_dict = {}
-    for i in range(10000):
-        test_dict[i] = f"value_{i}"
-    dict_insert_time = time.time() - start_time
-    print(f"字典插入 10000 次耗时: {dict_insert_time:.4f}s - O(1) 平均")
-    print()
-
-
-# ==== 第四部分：实战项目 - LRU 缓存实现 ====
-print("=== 实战项目：LRU 缓存实现 ===\n")
-
-class LRUCache:
-    """
-    LRU (Least Recently Used) 缓存实现
-    
-    使用双向链表 + 哈希表实现 O(1) 的 get 和 put 操作
-    """
-    
-    class _Node:
-        """双向链表节点"""
-        def __init__(self, key=None, value=None):
-            self.key = key
-            self.value = value
-            self.prev = None
-            self.next = None
-    
-    def __init__(self, capacity: int):
-        """
-        初始化 LRU 缓存
-        
-        Args:
-            capacity: 缓存容量
-        """
-        self.capacity = capacity
-        self.cache = {}  # key -> node 的映射
-        
-        # 创建双向链表的哨兵节点
-        self.head = self._Node()  # 头哨兵
-        self.tail = self._Node()  # 尾哨兵
-        self.head.next = self.tail
-        self.tail.prev = self.head
-    
-    def _add_node(self, node):
-        """在头部添加节点"""
-        node.prev = self.head
-        node.next = self.head.next
-        
-        self.head.next.prev = node
-        self.head.next = node
-    
-    def _remove_node(self, node):
-        """移除节点"""
-        prev_node = node.prev
-        next_node = node.next
-        
-        prev_node.next = next_node
-        next_node.prev = prev_node
-    
-    def _move_to_head(self, node):
-        """移动节点到头部"""
-        self._remove_node(node)
-        self._add_node(node)
-    
-    def _pop_tail(self):
-        """删除尾部节点"""
-        last_node = self.tail.prev
-        self._remove_node(last_node)
-        return last_node
-    
-    def get(self, key: int) -> int:
-        """
-        获取缓存值
-        
-        Args:
-            key: 键
+    def monitor(self, include_args=False, include_result=False):
+        """性能监控装饰器工厂"""
+        def decorator(func):
+            func_name = func.__name__
             
-        Returns:
-            int: 值，不存在返回 -1
-        """
-        node = self.cache.get(key)
-        
-        if not node:
-            return -1
-        
-        # 移动到头部（标记为最近使用）
-        self._move_to_head(node)
-        return node.value
-    
-    def put(self, key: int, value: int) -> None:
-        """
-        设置缓存值
-        
-        Args:
-            key: 键
-            value: 值
-        """
-        node = self.cache.get(key)
-        
-        if not node:
-            # 新键
-            new_node = self._Node(key, value)
+            # 初始化统计信息
+            with self.lock:
+                if func_name not in self.stats:
+                    self.stats[func_name] = {
+                        'call_count': 0,
+                        'total_time': 0,
+                        'avg_time': 0,
+                        'min_time': float('inf'),
+                        'max_time': 0,
+                        'errors': 0,
+                        'last_called': None,
+                        'call_history': []
+                    }
             
-            self.cache[key] = new_node
-            self._add_node(new_node)
+            @functools.wraps(func)
+            def wrapper(*args, **kwargs):
+                start_time = time.time()
+                call_info = {
+                    'timestamp': datetime.now().isoformat(),
+                    'args': args if include_args else None,
+                    'kwargs': kwargs if include_args else None,
+                }
+                
+                try:
+                    result = func(*args, **kwargs)
+                    call_info['result'] = result if include_result else None
+                    call_info['success'] = True
+                    
+                except Exception as e:
+                    call_info['error'] = str(e)
+                    call_info['success'] = False
+                    
+                    with self.lock:
+                        self.stats[func_name]['errors'] += 1
+                    
+                    raise
+                
+                finally:
+                    # 更新统计信息
+                    end_time = time.time()
+                    execution_time = end_time - start_time
+                    call_info['execution_time'] = execution_time
+                    
+                    with self.lock:
+                        stats = self.stats[func_name]
+                        stats['call_count'] += 1
+                        stats['total_time'] += execution_time
+                        stats['avg_time'] = stats['total_time'] / stats['call_count']
+                        stats['min_time'] = min(stats['min_time'], execution_time)
+                        stats['max_time'] = max(stats['max_time'], execution_time)
+                        stats['last_called'] = datetime.now().isoformat()
+                        
+                        # 保留最近的调用历史（最多100条）
+                        stats['call_history'].append(call_info)
+                        if len(stats['call_history']) > 100:
+                            stats['call_history'].pop(0)
+                
+                return result
             
-            # 检查容量
-            if len(self.cache) > self.capacity:
-                # 删除最久未使用的
-                tail_node = self._pop_tail()
-                del self.cache[tail_node.key]
-        else:
-            # 更新现有键
-            node.value = value
-            self._move_to_head(node)
+            return wrapper
+        return decorator
     
-    def __str__(self):
-        """显示缓存内容（从最新到最旧）"""
-        items = []
-        current = self.head.next
-        while current != self.tail:
-            items.append(f"{current.key}:{current.value}")
-            current = current.next
-        return f"LRUCache([{', '.join(items)}])"
+    def retry(self, max_attempts=3, delay=1, backoff=2):
+        """重试装饰器"""
+        def decorator(func):
+            @functools.wraps(func)
+            def wrapper(*args, **kwargs):
+                attempts = 0
+                current_delay = delay
+                
+                while attempts < max_attempts:
+                    try:
+                        return func(*args, **kwargs)
+                    except Exception as e:
+                        attempts += 1
+                        if attempts >= max_attempts:
+                            print(f"❌ 函数 {func.__name__} 重试 {max_attempts} 次后仍然失败")
+                            raise
+                        
+                        print(f"⚠️  函数 {func.__name__} 第 {attempts} 次失败，{current_delay}秒后重试")
+                        time.sleep(current_delay)
+                        current_delay *= backoff
+                
+            return wrapper
+        return decorator
+    
+    def cache(self, max_size=128, ttl=None):
+        """简单的缓存装饰器"""
+        def decorator(func):
+            cache_dict = {}
+            cache_times = {}
+            
+            @functools.wraps(func)
+            def wrapper(*args, **kwargs):
+                # 创建缓存键
+                key = str(args) + str(sorted(kwargs.items()))
+                current_time = time.time()
+                
+                # 检查 TTL
+                if ttl and key in cache_times:
+                    if current_time - cache_times[key] > ttl:
+                        cache_dict.pop(key, None)
+                        cache_times.pop(key, None)
+                
+                # 缓存命中
+                if key in cache_dict:
+                    print(f"🎯 缓存命中: {func.__name__}")
+                    return cache_dict[key]
+                
+                # 计算结果并缓存
+                result = func(*args, **kwargs)
+                
+                # 检查缓存大小
+                if len(cache_dict) >= max_size:
+                    # 简单的 LRU：删除最旧的条目
+                    oldest_key = next(iter(cache_dict))
+                    cache_dict.pop(oldest_key)
+                    cache_times.pop(oldest_key, None)
+                
+                cache_dict[key] = result
+                if ttl:
+                    cache_times[key] = current_time
+                
+                print(f"💾 结果已缓存: {func.__name__}")
+                return result
+            
+            # 添加缓存管理方法
+            wrapper.cache_info = lambda: {
+                'size': len(cache_dict),
+                'max_size': max_size,
+                'ttl': ttl
+            }
+            wrapper.cache_clear = lambda: (cache_dict.clear(), cache_times.clear())
+            
+            return wrapper
+        return decorator
+    
+    def get_stats(self, func_name=None):
+        """获取性能统计信息"""
+        with self.lock:
+            if func_name:
+                return self.stats.get(func_name, {})
+            return self.stats.copy()
+    
+    def reset_stats(self, func_name=None):
+        """重置统计信息"""
+        with self.lock:
+            if func_name:
+                self.stats.pop(func_name, None)
+            else:
+                self.stats.clear()
 
-def test_lru_cache():
-    """测试 LRU 缓存"""
-    print("LRU 缓存测试:")
-    cache = LRUCache(3)
-    
-    # 添加数据
-    cache.put(1, "A")
-    print(f"put(1, A): {cache}")
-    
-    cache.put(2, "B")
-    print(f"put(2, B): {cache}")
-    
-    cache.put(3, "C")
-    print(f"put(3, C): {cache}")
-    
-    # 访问数据
-    value = cache.get(1)
-    print(f"get(1) = {value}: {cache}")
-    
-    # 添加新数据（触发淘汰）
-    cache.put(4, "D")
-    print(f"put(4, D): {cache} (淘汰了 2)")
-    
-    # 测试不存在的键
-    value = cache.get(2)
-    print(f"get(2) = {value} (已被淘汰)")
-    
-    # 更新现有键
-    cache.put(1, "A_updated")
-    print(f"put(1, A_updated): {cache}")
-    print()
 
+def test_performance_monitor():
+    """测试性能监控系统"""
+    print("性能监控系统测试:")
+    
+    # 创建监控器实例
+    monitor = PerformanceMonitor()
+    
+    # 定义测试函数
+    @monitor.monitor(include_args=True, include_result=True)
+    @monitor.cache(max_size=10, ttl=5)
+    def calculate_fibonacci(n):
+        """计算斐波那契数列"""
+        if n <= 1:
+            return n
+        return calculate_fibonacci(n-1) + calculate_fibonacci(n-2)
+    
+    @monitor.monitor()
+    @monitor.retry(max_attempts=3, delay=0.1)
+    def unreliable_function(success_rate=0.7):
+        """模拟不稳定的函数"""
+        import random
+        if random.random() > success_rate:
+            raise Exception("随机失败")
+        return "成功执行"
+    
+    # 测试缓存功能
+    print("\n1️⃣ 测试缓存功能:")
+    result1 = calculate_fibonacci(10)
+    print(f"第一次计算结果: {result1}")
+    
+    result2 = calculate_fibonacci(10)  # 应该命中缓存
+    print(f"第二次计算结果: {result2}")
+    
+    print(f"缓存信息: {calculate_fibonacci.cache_info()}")
+    
+    # 测试重试功能
+    print("\n2️⃣ 测试重试功能:")
+    try:
+        result = unreliable_function(success_rate=0.3)
+        print(f"函数执行成功: {result}")
+    except Exception as e:
+        print(f"函数最终失败: {e}")
+    
+    # 查看性能统计
+    print("\n3️⃣ 性能统计报告:")
+    stats = monitor.get_stats()
+    for func_name, stat in stats.items():
+        print(f"\n函数: {func_name}")
+        print(f"  调用次数: {stat['call_count']}")
+        print(f"  总耗时: {stat['total_time']:.4f}s")
+        print(f"  平均耗时: {stat['avg_time']:.4f}s")
+        print(f"  最小耗时: {stat['min_time']:.4f}s")
+        print(f"  最大耗时: {stat['max_time']:.4f}s")
+        print(f"  错误次数: {stat['errors']}")
+        print(f"  最后调用: {stat['last_called']}")
 
-# ==== 运行所有演示 ====
-def run_all_demos():
-    """运行所有演示"""
-    demonstrate_defaultdict()
-    demonstrate_counter()
-    demonstrate_deque()
-    demonstrate_namedtuple()
-    
-    test_stack()
-    test_circular_buffer()
-    
-    analyze_list_operations()
-    analyze_dict_operations()
-    
-    test_lru_cache()
+test_performance_monitor()
+
 
 def todays_exercises():
     """今天的练习任务"""
+    print("\n" + "="*60)
     print("=== 今天的练习任务 ===\n")
     
-    print("🎯 任务 1: 实现一个智能的词频统计器")
+    print("🎯 任务 1: 实现日志装饰器")
     print("要求：")
-    print("- 使用 Counter 统计词频")
-    print("- 支持忽略大小写")
-    print("- 支持忽略标点符号")
-    print("- 提供最常见词汇的分析")
+    print("- 记录函数调用的详细信息")
+    print("- 支持不同日志级别 (DEBUG, INFO, WARNING, ERROR)")
+    print("- 支持自定义日志格式")
+    print("- 支持文件和控制台输出")
     print()
     
-    print("🎯 任务 2: 设计一个任务队列")
+    print("🎯 任务 2: 实现权限检查装饰器")
     print("要求：")
-    print("- 使用 deque 实现")
-    print("- 支持优先级（高优先级任务先执行）")
-    print("- 支持任务延迟执行")
-    print("- 分析时间复杂度")
+    print("- 检查用户权限")
+    print("- 支持角色和权限的组合")
+    print("- 权限不足时抛出异常或返回错误")
+    print("- 支持权限继承")
     print()
     
-    print("🎯 任务 3: 优化 LRU 缓存")
+    print("🎯 任务 3: 实现数据验证装饰器")
     print("要求：")
-    print("- 添加缓存命中率统计")
-    print("- 支持设置过期时间")
-    print("- 添加缓存大小监控")
-    print("- 实现缓存持久化（可选）")
+    print("- 验证函数参数类型和值")
+    print("- 支持自定义验证规则")
+    print("- 验证失败时提供详细错误信息")
+    print("- 支持可选参数和默认值")
     print()
     
     print("🎯 思考题:")
-    print("1. 什么时候使用 list，什么时候使用 deque？")
-    print("2. defaultdict 和普通 dict 的性能差异？")
-    print("3. LRU 缓存的哪些操作是 O(1) 的，为什么？")
+    print("1. 什么时候使用函数装饰器，什么时候使用类装饰器？")
+    print("2. 装饰器会对性能产生什么影响？如何优化？")
+    print("3. 如何设计一个装饰器来支持装饰器的装饰器？")
+    print("4. functools.wraps 的实现原理是什么？")
 
-if __name__ == "__main__":
-    run_all_demos()
-    todays_exercises()
+todays_exercises()
