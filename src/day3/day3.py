@@ -127,7 +127,11 @@ understand_decorator_essence()
 
 # ==== 第三部分：装饰器的执行时机 ====
 print("=== 装饰器的执行时机 ===\n")
-
+'''
+理解执行的时机：
+1. 装饰器函数执行：在你写 @my_decorator 这行代码时
+2. wrapper 函数执行：在你调用 hello() 时
+'''
 def demonstrate_execution_timing():
     """演示装饰器的执行时机"""
     
@@ -199,6 +203,15 @@ def demonstrate_functools_wraps():
     print(f"函数名: {good_function.__name__}")
     print(f"函数文档: {good_function.__doc__}")
     print()
+    '''
+    functools.wraps 的解决方案
+    @functools.wraps 会复制原函数的元信息：
+    它复制了这些属性：
+    python# functools.wraps 复制的属性
+    WRAPPER_ASSIGNMENTS = ('__module__', '__name__', '__qualname__',
+                        '__doc__', '__annotations__')
+    WRAPPER_UPDATES = ('__dict__',)
+    '''
 
 demonstrate_functools_wraps()
 
@@ -274,6 +287,27 @@ def greet_with_counter(name):
 print("测试类装饰器:")
 print(greet_with_counter("Alice"))
 print(greet_with_counter("Bob"))
+'''
+关键理解：类装饰器的本质
+greet_with_counter 不再是原来的函数，而是 CallCounter 类的实例！
+
+为什么可以像函数一样调用？
+因为 __call__ 魔术方法！
+class CallCounter:
+    def __call__(self, *args, **kwargs):  # 这让实例可以像函数一样调用
+        self.count += 1
+        return self.func(*args, **kwargs)
+
+# 所以可以这样调用：
+result = greet_with_counter("Alice")  # 实际调用的是 __call__ 方法
+'''
+'''
+总结：
+1. greet_with_counter 是 CallCounter 类的实例
+2. 它有 get_count 方法（因为类定义了这个方法）
+3. 它仍然可以像函数一样调用（因为有 __call__ 方法）
+4. 它既是函数又是对象，具有两重身份
+'''
 print(f"调用次数: {greet_with_counter.get_count()}")
 print()
 
