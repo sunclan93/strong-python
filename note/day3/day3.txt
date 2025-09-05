@@ -1,0 +1,448 @@
+总结：
+2. 性能考虑：权限装饰器会对性能有什么影响？如何优化？
+提示：
+
+每次函数调用都会执行权限检查
+权限继承计算可能比较复杂
+审计日志的写入开销
+解决：4. 异步日志写入
+import asyncio
+from queue import Queue
+import threading
+
+class AsyncAuditLogger:
+    def __init__(self):
+        self.log_queue = Queue()
+        self.audit_log = []
+        self._start_background_logger()
+    
+    def _start_background_logger(self):
+        """启动后台日志处理线程"""
+        def log_worker():
+            while True:
+                try:
+                    log_entry = self.log_queue.get(timeout=1)
+                    if log_entry is None:  # 停止信号
+                        break
+                    self.audit_log.append(log_entry)
+                    self.log_queue.task_done()
+                except:
+                    continue
+        
+        thread = threading.Thread(target=log_worker, daemon=True)
+        thread.start()
+    
+    def log_async(self, function_name, username, success, reason):
+        """异步记录日志，不阻塞主线程"""
+        log_entry = {
+            'timestamp': time.time(),  # 使用时间戳，更快
+            'function': function_name,
+            'username': username,
+            'success': success,
+            'reason': reason
+        }
+        self.log_queue.put_nowait(log_entry)
+
+5. 预编译权限检查
+class CompiledPermissionChecker:
+    """将权限检查逻辑预编译为更快的函数"""
+    
+    def __init__(self):
+        self._compiled_checkers = {}
+    
+    def _compile_permission_checker(self, permission, roles, require_all_roles):
+        """为特定权限组合生成优化的检查函数"""
+        def optimized_checker(user):
+            # 超级管理员
+            if Role.SUPER_ADMIN in user.roles:
+                return True, "超级管理员"
+            
+            # 单权限快速检查
+            if permission and permission in user.permissions:
+                return True, f"直接权限:{permission}"
+            
+            # 角色快速检查
+            if roles:
+                if require_all_roles:
+                    if all(role in user.roles for role in roles):
+                        return True, f"拥有所有角色:{roles}"
+                else:
+                    if any(role in user.roles for role in roles):
+                        return True, f"拥有角色:{[r for r in roles if r in user.roles]}"
+            
+            return False, "权限不足"
+        
+        return optimized_checker
+    
+    def require_permission(self, permission=None, roles=None, require_all_roles=False):
+        # 生成缓存键
+        cache_key = (permission, tuple(roles) if roles else None, require_all_roles)
+        
+        # 获取或创建编译的检查器
+        if cache_key not in self._compiled_checkers:
+            self._compiled_checkers[cache_key] = self._compile_permission_checker(
+                permission, roles, require_all_roles
+            )
+        
+        checker = self._compiled_checkers[cache_key]
+        
+        def decorator(func):
+            @functools.wraps(func)
+            def wrapper(*args, **kwargs):
+                user = AuthContext.get_current_user()
+                if not user or not user.is_active:
+                    raise PermissionError("用户未登录或已禁用")
+                
+                # 使用编译的检查器
+                allowed, reason = checker(user)
+                if not allowed:
+                    raise PermissionError(reason)
+                
+                return func(*args, **kwargs)
+            return wrapper
+        return decorator
+
+
+优化点方法预期提升权限计算LRU缓存 + 预计算5-10x
+用户状态会话缓存2-3x
+日志写入异步处理3-5x
+权限检查快速路径 + 预编译10-20x
+内存使用deque + 对象池减少50%
+
+
+3. 实际应用：在你熟悉的项目中，哪里可以应用装饰器模式？
+1. Web 开发项目
+A. API 接口保护
+python# Flask/Django API 项目
+@app.route('/api/users', methods=['POST'])
+@require_authentication
+@require_permission('create_user')
+@validate_json_schema(user_schema)
+@rate_limit(requests_per_minute=60)
+def create_user():
+    return jsonify({"status": "success"})
+
+# FastAPI 项目
+@app.post("/users/")
+@require_role(Role.ADMIN)
+@cache_response(ttl=300)
+async def get_users(current_user: User = Depends(get_current_user)):
+    return await user_service.get_all_users()
+B. 路由和中间件
+python# 自定义路由装饰器
+def api_route(path: str, methods: list = None):
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            try:
+                result = func(*args, **kwargs)
+                return {"data": result, "status": "success"}
+            except Exception as e:
+                return {"error": str(e), "status": "error"}
+        
+        # 注册路由
+        app.add_url_rule(path, func.__name__, wrapper, methods=methods)
+        return wrapper
+    return decorator
+
+@api_route('/health', methods=['GET'])
+def health_check():
+    return {"status": "healthy"}
+2. 数据库和 ORM 项目
+A. 数据库事务管理
+pythondef transaction(func):
+    """自动事务管理装饰器"""
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        conn = get_db_connection()
+        trans = conn.begin()
+        try:
+            result = func(*args, **kwargs)
+            trans.commit()
+            return result
+        except Exception as e:
+            trans.rollback()
+            raise
+        finally:
+            conn.close()
+    return wrapper
+
+@transaction
+def transfer_money(from_account, to_account, amount):
+    # 这个函数的所有数据库操作都在一个事务中
+    debit(from_account, amount)
+    credit(to_account, amount)
+B. 数据验证和清理
+pythondef validate_input(**validators):
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            for param, validator in validators.items():
+                if param in kwargs:
+                    if not validator(kwargs[param]):
+                        raise ValueError(f"Invalid {param}")
+            return func(*args, **kwargs)
+        return wrapper
+    return decorator
+
+@validate_input(
+    email=lambda x: '@' in x,
+    age=lambda x: isinstance(x, int) and 0 < x < 120
+)
+def create_user(name, email, age):
+    # 输入已经验证过了
+    pass
+3. 微服务和分布式系统
+A. 服务间调用
+pythondef circuit_breaker(failure_threshold=5, timeout=60):
+    """熔断器装饰器"""
+    def decorator(func):
+        func._failures = 0
+        func._last_failure_time = 0
+        
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            current_time = time.time()
+            
+            # 检查熔断状态
+            if (func._failures >= failure_threshold and 
+                current_time - func._last_failure_time < timeout):
+                raise Exception("Circuit breaker is open")
+            
+            try:
+                result = func(*args, **kwargs)
+                func._failures = 0  # 重置失败计数
+                return result
+            except Exception as e:
+                func._failures += 1
+                func._last_failure_time = current_time
+                raise
+        
+        return wrapper
+    return decorator
+
+@circuit_breaker(failure_threshold=3, timeout=30)
+@retry(max_attempts=3)
+def call_external_service(data):
+    return requests.post('http://external-api.com/process', json=data)
+B. 服务监控和指标
+pythondef prometheus_metrics(metric_name):
+    """Prometheus 指标收集装饰器"""
+    counter = Counter(f'{metric_name}_total', f'{metric_name} total calls')
+    histogram = Histogram(f'{metric_name}_duration_seconds', f'{metric_name} duration')
+    
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            start_time = time.time()
+            try:
+                result = func(*args, **kwargs)
+                counter.labels(status='success').inc()
+                return result
+            except Exception as e:
+                counter.labels(status='error').inc()
+                raise
+            finally:
+                histogram.observe(time.time() - start_time)
+        return wrapper
+    return decorator
+
+@prometheus_metrics('user_service_create_user')
+def create_user(user_data):
+    # 自动收集调用次数和执行时间指标
+    pass
+4. 数据科学和机器学习项目
+A. 实验跟踪
+pythondef track_experiment(experiment_name: str):
+    """ML 实验跟踪装饰器"""
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            import mlflow
+            
+            with mlflow.start_run(run_name=experiment_name):
+                # 记录参数
+                mlflow.log_params({f"param_{i}": arg for i, arg in enumerate(args)})
+                mlflow.log_params(kwargs)
+                
+                start_time = time.time()
+                result = func(*args, **kwargs)
+                execution_time = time.time() - start_time
+                
+                # 记录指标
+                mlflow.log_metric("execution_time", execution_time)
+                if isinstance(result, dict):
+                    for key, value in result.items():
+                        if isinstance(value, (int, float)):
+                            mlflow.log_metric(key, value)
+                
+                return result
+        return wrapper
+    return decorator
+
+@track_experiment("random_forest_training")
+def train_model(X_train, y_train, n_estimators=100):
+    model = RandomForestClassifier(n_estimators=n_estimators)
+    model.fit(X_train, y_train)
+    accuracy = model.score(X_test, y_test)
+    return {"model": model, "accuracy": accuracy}
+B. 数据管道处理
+pythondef data_pipeline_step(step_name: str, save_intermediate=True):
+    """数据管道步骤装饰器"""
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(data, *args, **kwargs):
+            print(f"开始执行步骤: {step_name}")
+            
+            # 数据验证
+            if data is None or len(data) == 0:
+                raise ValueError(f"Step {step_name}: 输入数据为空")
+            
+            start_time = time.time()
+            result = func(data, *args, **kwargs)
+            execution_time = time.time() - start_time
+            
+            # 保存中间结果
+            if save_intermediate:
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                filename = f"{step_name}_{timestamp}.pkl"
+                joblib.dump(result, filename)
+            
+            print(f"步骤 {step_name} 完成，耗时: {execution_time:.2f}s")
+            return result
+        return wrapper
+    return decorator
+
+@data_pipeline_step("data_cleaning", save_intermediate=True)
+def clean_data(raw_data):
+    # 数据清理逻辑
+    return cleaned_data
+
+@data_pipeline_step("feature_engineering")
+def extract_features(clean_data):
+    # 特征工程逻辑
+    return features
+5. 爬虫和数据采集项目
+A. 反爬虫对抗
+pythondef anti_detection(delay_range=(1, 3), user_agent_rotation=True):
+    """反反爬虫装饰器"""
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            # 随机延迟
+            time.sleep(random.uniform(*delay_range))
+            
+            # 轮换 User-Agent
+            if user_agent_rotation:
+                headers = kwargs.get('headers', {})
+                headers['User-Agent'] = random.choice(USER_AGENT_LIST)
+                kwargs['headers'] = headers
+            
+            return func(*args, **kwargs)
+        return wrapper
+    return decorator
+
+@anti_detection(delay_range=(2, 5))
+@retry(max_attempts=3)
+def scrape_page(url, headers=None):
+    response = requests.get(url, headers=headers)
+    return response.text
+B. 数据抓取管道
+pythondef scraper_pipeline(save_to_db=True, validate_data=True):
+    """爬虫数据处理管道"""
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            try:
+                raw_data = func(*args, **kwargs)
+                
+                # 数据验证
+                if validate_data:
+                    if not validate_scraped_data(raw_data):
+                        raise ValueError("数据验证失败")
+                
+                # 数据清理
+                cleaned_data = clean_scraped_data(raw_data)
+                
+                # 保存到数据库
+                if save_to_db:
+                    save_to_database(cleaned_data)
+                
+                return cleaned_data
+                
+            except Exception as e:
+                logger.error(f"爬虫错误: {str(e)}")
+                send_alert(f"爬虫失败: {func.__name__}")
+                raise
+        return wrapper
+    return decorator
+
+@scraper_pipeline(save_to_db=True)
+def scrape_product_info(product_url):
+    # 爬取商品信息
+    return product_data
+6. 游戏开发项目
+A. 游戏事件处理
+pythondef game_event(event_type: str):
+    """游戏事件装饰器"""
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(player, *args, **kwargs):
+            # 事件前置检查
+            if not player.is_active:
+                return {"error": "玩家未激活"}
+            
+            # 记录事件
+            log_game_event(player.id, event_type, args, kwargs)
+            
+            # 执行事件
+            result = func(player, *args, **kwargs)
+            
+            # 更新玩家统计
+            update_player_stats(player.id, event_type, result)
+            
+            return result
+        return wrapper
+    return decorator
+
+@game_event("attack")
+@cooldown(seconds=1)  # 技能冷却
+def player_attack(player, target, skill_id):
+    damage = calculate_damage(player, target, skill_id)
+    target.take_damage(damage)
+    return {"damage": damage, "target": target.id}
+7. 企业级业务系统
+A. 业务流程控制
+pythondef business_process(process_name: str, requires_approval=False):
+    """业务流程装饰器"""
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            # 开始业务流程
+            process_id = start_business_process(process_name)
+            
+            try:
+                # 需要审批的流程
+                if requires_approval:
+                    if not check_approval_status(process_id):
+                        return {"status": "pending_approval", "process_id": process_id}
+                
+                # 执行业务逻辑
+                result = func(*args, **kwargs)
+                
+                # 记录业务日志
+                log_business_operation(process_id, "success", result)
+                
+                return {"status": "completed", "data": result, "process_id": process_id}
+                
+            except Exception as e:
+                log_business_operation(process_id, "failed", str(e))
+                raise
+        return wrapper
+    return decorator
+
+@business_process("salary_adjustment", requires_approval=True)
+def adjust_employee_salary(employee_id, new_salary, reason):
+    # 薪资调整业务逻辑
+    return update_employee_salary(employee_id, new_salary, reason)
+

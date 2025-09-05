@@ -90,12 +90,25 @@ class PermissionRegistry:
         # 2. 对每个角色，获取其直接权限和继承权限
         # 3. 合并所有权限
         # 4. 处理 '*' 通配符权限
-        
+        all_roles = set(roles)
+
         for role in roles:
-            permissions = self.get_effective_permissions(role)
+            if role in self.role_hierarchy:
+                all_roles.update(self.role_hierarchy[role])
+        all_permissions = set()
+        for role in all_roles:
+            if role in self.role_permissions:
+                perms = self.role_permissions[role]
+                if '*' in perms:
+                    return {'*'}  # 超级权限
+                all_permissions.update(perms)
+        
+        return all_permissions
             
 
-        pass
+            
+
+        
 
 
 # ==== 第二部分：权限装饰器实现 ====
@@ -148,25 +161,94 @@ class PermissionChecker:
             def wrapper(*args, **kwargs):
                 user = AuthContext.get_current_user()
                 
-                # 检查用户是否已登录
+                # 1. 基础检查
                 if not user:
                     self._log_access_attempt(func.__name__, None, False, "用户未登录")
                     raise PermissionError("请先登录")
                 
-                # 检查用户是否激活
                 if not user.is_active:
                     self._log_access_attempt(func.__name__, user.username, False, "用户账户已禁用")
                     raise PermissionError("账户已禁用")
+                # 2. 权限检查
+                permission_granted = False
+                check_reasons = []
                 
-                # TODO: 实现权限检查逻辑
-                # 提示：
-                # 1. 如果指定了 permission，检查用户是否有该权限
-                # 2. 如果指定了 roles，检查用户是否有相应角色
-                # 3. 如果指定了 custom_check，执行自定义检查
-                # 4. 记录访问日志
-                # 5. 权限不足时抛出 PermissionError
+                # 2.1 检查直接权限
+                if permission:
+                    # 检查用户直接权限
+                    if user.has_permission(permission):
+                        permission_granted = True
+                        check_reasons.append(f"拥有直接权限: {permission}")
+                    else:
+                        # 检查角色继承权限
+                        effective_perms = self.registry.get_effective_permissions(user.roles)
+                        if '*' in effective_perms or permission in effective_perms:
+                            permission_granted = True
+                            check_reasons.append(f"通过角色继承获得权限: {permission}")
+                        else:
+                            check_reasons.append(f"缺少权限: {permission}")
                 
-                pass
+                # 2.2 检查角色权限
+                if roles and not permission_granted:
+                    if require_all_roles:
+                        if user.has_all_roles(roles):
+                            permission_granted = True
+                            check_reasons.append(f"拥有所有必需角色: {[r.value for r in roles]}")
+                        else:
+                            missing_roles = [r for r in roles if not user.has_role(r)]
+                            check_reasons.append(f"缺少角色: {[r.value for r in missing_roles]}")
+                    else:
+                        if user.has_any_role(roles):
+                            matched_roles = [r for r in roles if user.has_role(r)]
+                            permission_granted = True
+                            check_reasons.append(f"拥有角色: {[r.value for r in matched_roles]}")
+                        else:
+                            check_reasons.append(f"不具备任何必需角色: {[r.value for r in roles]}")
+                
+                # 2.3 检查资源所有者权限
+                if allow_owner and not permission_granted:
+                    owner_id = self._extract_owner_id(*args, **kwargs)
+                    if owner_id and user.id == owner_id:
+                        permission_granted = True
+                        check_reasons.append("资源所有者权限")
+                    else:
+                        check_reasons.append("非资源所有者")
+                
+                # 2.4 自定义检查
+                if custom_check and not permission_granted:
+                    try:
+                        if custom_check(*args, **kwargs):
+                            permission_granted = True
+                            check_reasons.append("通过自定义检查")
+                        else:
+                            check_reasons.append("自定义检查失败")
+                    except Exception as e:
+                        check_reasons.append(f"自定义检查异常: {str(e)}")
+                
+                # 2.5 超级管理员总是有权限
+                if not permission_granted and Role.SUPER_ADMIN in user.roles:
+                    permission_granted = True
+                    check_reasons.append("超级管理员权限")
+                
+                # 3. 如果没有任何权限检查条件，只要登录就可以访问
+                if not permission and not roles and not custom_check and not allow_owner:
+                    permission_granted = True
+                    check_reasons.append("仅需登录")
+                
+                # 4. 最终权限判断
+                if not permission_granted:
+                    reason = "; ".join(check_reasons)
+                    self._log_access_attempt(func.__name__, user.username, False, reason)
+                    raise PermissionError(f"权限不足: {reason}")
+                
+                # 5. 权限检查通过，记录日志并执行函数
+                reason = "; ".join(check_reasons)
+                self._log_access_attempt(func.__name__, user.username, True, reason)
+                return func(*args, **kwargs)
+
+
+                
+                
             
             return wrapper
         return decorator
@@ -174,13 +256,26 @@ class PermissionChecker:
     def require_login(self, func):
         """只需要登录的装饰器"""
         # TODO: 实现只检查登录状态的装饰器
-        pass
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            user = AuthContext.get_current_user()
+            if not user:
+                self._log_access_attempt(func.__name__, None, False, "用户未登录")
+                raise PermissionError("请先登录")
+            if not user.is_active:
+                self._log_access_attempt(func.__name__, None, False, "用户账户已禁用")
+                raise PermissionError("账户已禁用")
+            self._log_access_attempt(func.__name__, user.username, True, "登录检查通过")
+            return func(*args, **kwargs)
+        return wrapper
+        
     
     def require_role(self, *roles: Role, require_all: bool = False):
         """角色检查装饰器"""
         # TODO: 实现角色检查装饰器
         # 提示：可以复用 require_permission 装饰器
-        pass
+        return self.require_permission(roles=list(roles), require_all_roles=require_all)
+        
     
     def _log_access_attempt(self, function_name: str, username: str, success: bool, reason: str = ""):
         """记录访问尝试"""
@@ -307,6 +402,94 @@ def advanced_permission_examples():
     
     print("高级权限示例定义完成")
 
+def comprehensive_test():
+    """完整的权限系统测试"""
+    print("=== 完整权限系统测试 ===\n")
+    
+    # 创建权限检查器
+    checker = PermissionChecker()
+    
+    # 创建测试用户
+    guest = User(id=1, username="guest", roles={Role.GUEST}, permissions=set())
+    user = User(id=2, username="user", roles={Role.USER}, permissions=set())
+    moderator = User(id=3, username="moderator", roles={Role.MODERATOR}, permissions=set())
+    admin = User(id=4, username="admin", roles={Role.ADMIN}, permissions=set())
+    super_admin = User(id=5, username="super_admin", roles={Role.SUPER_ADMIN}, permissions=set())
+    
+    # 定义测试函数
+    @checker.require_login
+    def public_content():
+        return "任何登录用户都可以看"
+    
+    @checker.require_permission(permission="moderate_content")
+    def moderate_post(post_id):
+        return f"审核帖子 {post_id}"
+    
+    @checker.require_role(Role.ADMIN)
+    def admin_panel():
+        return "管理员面板"
+    
+    @checker.require_permission(permission="edit_post", allow_owner=True)
+    def edit_post(owner_id, post_id, content):
+        return f"编辑帖子 {post_id}: {content}"
+    
+    def custom_time_check(*args, **kwargs):
+        """自定义检查：只在白天工作"""
+        import datetime
+        current_hour = datetime.datetime.now().hour
+        return 9 <= current_hour <= 17
+    
+    @checker.require_permission(custom_check=custom_time_check)
+    def business_hours_only():
+        return "营业时间内的操作"
+    
+    # 测试用例
+    test_cases = [
+        ("guest", guest),
+        ("user", user),
+        ("moderator", moderator),
+        ("admin", admin),
+        ("super_admin", super_admin)
+    ]
+    
+    functions_to_test = [
+        ("public_content", public_content, []),
+        ("moderate_post", moderate_post, [1]),
+        ("admin_panel", admin_panel, []),
+        ("edit_post (own)", edit_post, [2, 123, "new content"]),  # user编辑自己的帖子
+        ("edit_post (other)", edit_post, [999, 123, "new content"]),  # user编辑别人的帖子
+        ("business_hours_only", business_hours_only, [])
+    ]
+    
+    # 执行测试
+    for user_name, test_user in test_cases:
+        print(f"\n{'='*10} 测试用户: {user_name} {'='*10}")
+        AuthContext.set_current_user(test_user)
+        
+        for func_name, func, args in functions_to_test:
+            try:
+                result = func(*args)
+                print(f"✅ {func_name}: {result}")
+            except PermissionError as e:
+                print(f"❌ {func_name}: {e}")
+            except Exception as e:
+                print(f"🔥 {func_name}: 其他错误 - {e}")
+    
+    # 显示审计日志摘要
+    print(f"\n{'='*20} 审计日志摘要 {'='*20}")
+    logs = checker.get_audit_log()
+    success_count = sum(1 for log in logs if log['success'])
+    fail_count = len(logs) - success_count
+    
+    print(f"总访问次数: {len(logs)}")
+    print(f"成功次数: {success_count}")
+    print(f"失败次数: {fail_count}")
+    
+    print(f"\n最近10条日志:")
+    for log in logs[-10:]:
+        status = "✅" if log['success'] else "❌"
+        timestamp = log['timestamp'][:19]
+        print(f"{status} {timestamp} | {log['username']} | {log['function']} | {log['reason']}")
 
 if __name__ == "__main__":
     print("🎯 你的任务：")
@@ -323,5 +506,6 @@ if __name__ == "__main__":
     print()
     
     # 取消注释来测试你的实现
-    test_permission_system()
+    # test_permission_system()
     # advanced_permission_examples()
+    comprehensive_test()
