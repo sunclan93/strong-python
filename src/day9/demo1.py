@@ -17,6 +17,7 @@ class MethodTypesDemo:
         # 更新类属性
         MethodTypesDemo.instance_count += 1
         MethodTypesDemo.created_instances.append(self)
+        
     
     # 1. 实例方法 - 访问实例和类
     def instance_method(self):
