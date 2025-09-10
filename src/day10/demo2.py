@@ -1,356 +1,508 @@
-# Protocol类型提示系统
+# 依赖注入模式实践
 
-from typing import Protocol, runtime_checkable, Union, Any, List, Dict
+from typing import Protocol, Dict, Any, Optional, Callable, TypeVar, Generic
 from abc import ABC, abstractmethod
+import inspect
+from functools import wraps
 
 # =============================================================================
-# 1. Protocol基础概念
+# 1. 服务接口定义（使用Protocol）
 # =============================================================================
 
-class Drawable(Protocol):
-    """可绘制对象的协议
+class Logger(Protocol):
+    """日志服务协议"""
     
-    Protocol定义了一个"结构化类型"接口
-    任何实现了这些方法的类都自动符合这个协议
-    """
-    
-    def draw(self) -> str:
-        """绘制方法 - 必须实现"""
+    def log(self, level: str, message: str) -> None:
+        """记录日志"""
         ...
     
-    def get_area(self) -> float:
-        """获取面积 - 必须实现"""
+    def debug(self, message: str) -> None:
+        """调试日志"""
         ...
     
-    # Protocol可以有属性要求
-    width: float
-    height: float
-
-class Resizable(Protocol):
-    """可调整大小对象的协议"""
-    
-    def resize(self, factor: float) -> None:
-        """调整大小"""
-        ...
-    
-    def get_dimensions(self) -> tuple[float, float]:
-        """获取尺寸"""
+    def error(self, message: str) -> None:
+        """错误日志"""
         ...
 
-# =============================================================================
-# 2. 实现Protocol的类（鸭子类型）
-# =============================================================================
-
-class Rectangle:
-    """矩形类 - 自动实现Drawable协议
+class Database(Protocol):
+    """数据库服务协议"""
     
-    注意：没有显式继承Drawable，但实现了所需方法
-    """
-    
-    def __init__(self, width: float, height: float):
-        self.width = width
-        self.height = height
-    
-    def draw(self) -> str:
-        """实现Drawable.draw"""
-        return f"绘制矩形: {self.width} x {self.height}"
-    
-    def get_area(self) -> float:
-        """实现Drawable.get_area"""
-        return self.width * self.height
-    
-    def resize(self, factor: float) -> None:
-        """实现Resizable.resize"""
-        self.width *= factor
-        self.height *= factor
-    
-    def get_dimensions(self) -> tuple[float, float]:
-        """实现Resizable.get_dimensions"""
-        return (self.width, self.height)
-
-class Circle:
-    """圆形类 - 也实现了Drawable协议"""
-    
-    def __init__(self, radius: float):
-        self.radius = radius
-        # Protocol要求width和height属性
-        self.width = radius * 2
-        self.height = radius * 2
-    
-    def draw(self) -> str:
-        """实现Drawable.draw"""
-        return f"绘制圆形: 半径 {self.radius}"
-    
-    def get_area(self) -> float:
-        """实现Drawable.get_area"""
-        return 3.14159 * self.radius ** 2
-    
-    def resize(self, factor: float) -> None:
-        """实现Resizable.resize"""
-        self.radius *= factor
-        self.width = self.radius * 2
-        self.height = self.radius * 2
-    
-    def get_dimensions(self) -> tuple[float, float]:
-        """实现Resizable.get_dimensions"""
-        return (self.width, self.height)
-
-class Triangle:
-    """三角形类 - 只实现部分协议"""
-    
-    def __init__(self, base: float, height: float):
-        self.base = base
-        self.height = height
-        self.width = base  # 满足Protocol的属性要求
-    
-    def draw(self) -> str:
-        return f"绘制三角形: 底 {self.base}, 高 {self.height}"
-    
-    def get_area(self) -> float:
-        return 0.5 * self.base * self.height
-    
-    # 注意：Triangle没有实现resize和get_dimensions
-    # 所以它符合Drawable协议，但不符合Resizable协议
-
-# =============================================================================
-# 3. 使用Protocol进行类型检查的函数
-# =============================================================================
-
-def draw_shape(shape: Drawable) -> str:
-    """绘制形状函数
-    
-    参数类型使用Protocol，任何实现了Drawable协议的对象都可以传入
-    """
-    print(f"形状信息: 宽={shape.width}, 高={shape.height}")
-    print(f"面积: {shape.get_area()}")
-    return shape.draw()
-
-def resize_shape(shape: Resizable, factor: float) -> tuple[float, float]:
-    """调整形状大小
-    
-    只接受实现了Resizable协议的对象
-    """
-    print(f"调整前尺寸: {shape.get_dimensions()}")
-    shape.resize(factor)
-    new_dimensions = shape.get_dimensions()
-    print(f"调整后尺寸: {new_dimensions}")
-    return new_dimensions
-
-def process_drawable_and_resizable(shape: Union[Drawable, Resizable]) -> Dict[str, Any]:
-    """处理既可绘制又可调整大小的形状
-    
-    这里使用Union类型，展示Protocol的组合使用
-    """
-    result = {"type": type(shape).__name__}
-    
-    # 检查是否实现了Drawable协议
-    if hasattr(shape, 'draw') and hasattr(shape, 'get_area'):
-        result["drawable"] = True
-        result["drawing"] = shape.draw()
-        result["area"] = shape.get_area()
-    else:
-        result["drawable"] = False
-    
-    # 检查是否实现了Resizable协议
-    if hasattr(shape, 'resize') and hasattr(shape, 'get_dimensions'):
-        result["resizable"] = True
-        result["dimensions"] = shape.get_dimensions()
-    else:
-        result["resizable"] = False
-    
-    return result
-
-# =============================================================================
-# 4. runtime_checkable Protocol
-# =============================================================================
-
-@runtime_checkable
-class Serializable(Protocol):
-    """可序列化协议 - 支持运行时检查
-    
-    @runtime_checkable 让Protocol支持isinstance()检查
-    """
-    
-    def serialize(self) -> str:
-        """序列化为字符串"""
+    def connect(self) -> bool:
+        """连接数据库"""
         ...
     
-    def deserialize(self, data: str) -> 'Serializable':
-        """从字符串反序列化"""
+    def execute(self, query: str) -> Any:
+        """执行查询"""
+        ...
+    
+    def close(self) -> None:
+        """关闭连接"""
         ...
 
-class User:
-    """用户类 - 实现Serializable协议"""
+class Cache(Protocol):
+    """缓存服务协议"""
     
-    def __init__(self, name: str, age: int):
-        self.name = name
-        self.age = age
+    def get(self, key: str) -> Optional[Any]:
+        """获取缓存"""
+        ...
     
-    def serialize(self) -> str:
-        """实现序列化"""
-        import json
-        return json.dumps({"name": self.name, "age": self.age})
+    def set(self, key: str, value: Any, expire: int = 300) -> None:
+        """设置缓存"""
+        ...
     
-    def deserialize(self, data: str) -> 'User':
-        """实现反序列化"""
-        import json
-        user_data = json.loads(data)
-        return User(user_data["name"], user_data["age"])
-    
-    def __str__(self):
-        return f"User(name={self.name}, age={self.age})"
+    def delete(self, key: str) -> bool:
+        """删除缓存"""
+        ...
 
-class Product:
-    """产品类 - 没有实现Serializable协议"""
-    
-    def __init__(self, name: str, price: float):
-        self.name = name
-        self.price = price
+# =============================================================================
+# 2. 具体服务实现
+# =============================================================================
 
-def handle_serializable_object(obj: Serializable) -> str:
-    """处理可序列化对象
+class ConsoleLogger:
+    """控制台日志实现"""
     
-    使用runtime_checkable Protocol进行运行时检查
+    def __init__(self, level: str = "INFO"):
+        self.level = level
+    
+    def log(self, level: str, message: str) -> None:
+        print(f"[{level}] {message}")
+    
+    def debug(self, message: str) -> None:
+        if self.level == "DEBUG":
+            self.log("DEBUG", message)
+    
+    def error(self, message: str) -> None:
+        self.log("ERROR", message)
+
+class FileLogger:
+    """文件日志实现"""
+    
+    def __init__(self, filename: str, level: str = "INFO"):
+        self.filename = filename
+        self.level = level
+    
+    def log(self, level: str, message: str) -> None:
+        # 模拟写入文件
+        print(f"写入文件 {self.filename}: [{level}] {message}")
+    
+    def debug(self, message: str) -> None:
+        if self.level == "DEBUG":
+            self.log("DEBUG", message)
+    
+    def error(self, message: str) -> None:
+        self.log("ERROR", message)
+
+class SQLiteDatabase:
+    """SQLite数据库实现"""
+    
+    def __init__(self, db_path: str):
+        self.db_path = db_path
+        self.connected = False
+    
+    def connect(self) -> bool:
+        print(f"连接到SQLite数据库: {self.db_path}")
+        self.connected = True
+        return True
+    
+    def execute(self, query: str) -> Any:
+        if not self.connected:
+            raise RuntimeError("数据库未连接")
+        print(f"执行SQL: {query}")
+        return f"结果: {query}"
+    
+    def close(self) -> None:
+        print("关闭SQLite连接")
+        self.connected = False
+
+class MemoryCache:
+    """内存缓存实现"""
+    
+    def __init__(self):
+        self._cache: Dict[str, Any] = {}
+    
+    def get(self, key: str) -> Optional[Any]:
+        value = self._cache.get(key)
+        print(f"缓存获取 {key}: {'命中' if value else '未命中'}")
+        return value
+    
+    def set(self, key: str, value: Any, expire: int = 300) -> None:
+        self._cache[key] = value
+        print(f"缓存设置 {key} = {value} (过期时间: {expire}s)")
+    
+    def delete(self, key: str) -> bool:
+        if key in self._cache:
+            del self._cache[key]
+            print(f"缓存删除 {key}")
+            return True
+        return False
+
+# =============================================================================
+# 3. 依赖注入容器
+# =============================================================================
+
+T = TypeVar('T')
+
+class DIContainer:
+    """依赖注入容器
+    
+    管理服务的注册、创建和生命周期
     """
-    # 运行时检查对象是否符合Protocol
-    if isinstance(obj, Serializable):
-        print(f"✅ {type(obj).__name__} 实现了Serializable协议")
-        return obj.serialize()
-    else:
-        print(f"❌ {type(obj).__name__} 未实现Serializable协议")
-        return ""
+    
+    def __init__(self):
+        self._services: Dict[str, Any] = {}  # 服务实例
+        self._factories: Dict[str, Callable] = {}  # 服务工厂函数
+        self._singletons: Dict[str, Any] = {}  # 单例服务
+    
+    def register(self, name: str, implementation: Any, singleton: bool = True) -> None:
+        """注册服务
+        
+        Args:
+            name: 服务名称
+            implementation: 服务实现（类或实例）
+            singleton: 是否为单例
+        """
+        if inspect.isclass(implementation):
+            # 如果是类，创建工厂函数
+            self._factories[name] = implementation
+        else:
+            # 如果是实例，直接注册
+            self._services[name] = implementation
+        
+        if singleton and name not in self._singletons:
+            self._singletons[name] = None
+        
+        print(f"注册服务: {name} -> {implementation}")
+    
+    def register_factory(self, name: str, factory: Callable[[], T]) -> None:
+        """注册工厂函数"""
+        self._factories[name] = factory
+        print(f"注册工厂: {name}")
+    
+    def get(self, name: str) -> Any:
+        """获取服务实例"""
+        # 1. 检查已注册的实例
+        if name in self._services:
+            return self._services[name]
+        
+        # 2. 检查单例
+        if name in self._singletons and self._singletons[name] is not None:
+            return self._singletons[name]
+        
+        # 3. 使用工厂创建
+        if name in self._factories:
+            factory = self._factories[name]
+            instance = factory()
+            
+            # 如果是单例，缓存实例
+            if name in self._singletons:
+                self._singletons[name] = instance
+            
+            return instance
+        
+        raise ValueError(f"服务 '{name}' 未注册")
+    
+    def resolve_dependencies(self, func: Callable) -> Callable:
+        """自动解析函数的依赖注入"""
+        sig = inspect.signature(func)
+        
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            # 检查参数是否需要注入
+            bound_args = sig.bind_partial(*args, **kwargs)
+            
+            for param_name, param in sig.parameters.items():
+                if param_name not in bound_args.arguments:
+                    # 尝试从容器获取服务
+                    try:
+                        service = self.get(param_name)
+                        bound_args.arguments[param_name] = service
+                    except ValueError:
+                        # 如果没有对应的服务，跳过
+                        pass
+            
+            bound_args.apply_defaults()
+            return func(*bound_args.args, **bound_args.kwargs)
+        
+        return wrapper
 
 # =============================================================================
-# 5. Protocol vs ABC对比
+# 4. 使用依赖注入的业务类
 # =============================================================================
 
-# ABC方式 - 显式继承
-class DrawableABC(ABC):
-    """ABC版本的Drawable"""
+class UserService:
+    """用户服务 - 使用依赖注入"""
     
-    @abstractmethod
-    def draw(self) -> str:
-        pass
+    def __init__(self, logger: Logger, database: Database, cache: Cache):
+        self.logger = logger
+        self.database = database
+        self.cache = cache
+        
+        # 初始化时连接数据库
+        self.database.connect()
+        self.logger.log("INFO", "UserService 初始化完成")
     
-    @abstractmethod
-    def get_area(self) -> float:
-        pass
+    def get_user(self, user_id: str) -> Dict[str, Any]:
+        """获取用户信息"""
+        self.logger.debug(f"获取用户: {user_id}")
+        
+        # 1. 先检查缓存
+        cache_key = f"user:{user_id}"
+        cached_user = self.cache.get(cache_key)
+        
+        if cached_user:
+            self.logger.log("INFO", f"从缓存获取用户 {user_id}")
+            return cached_user
+        
+        # 2. 从数据库查询
+        query = f"SELECT * FROM users WHERE id = '{user_id}'"
+        db_result = self.database.execute(query)
+        
+        user_data = {
+            "id": user_id,
+            "name": f"User_{user_id}",
+            "email": f"user{user_id}@example.com"
+        }
+        
+        # 3. 缓存结果
+        self.cache.set(cache_key, user_data, expire=600)
+        self.logger.log("INFO", f"用户 {user_id} 已缓存")
+        
+        return user_data
+    
+    def create_user(self, user_data: Dict[str, Any]) -> bool:
+        """创建用户"""
+        user_id = user_data.get("id")
+        self.logger.log("INFO", f"创建用户: {user_id}")
+        
+        try:
+            # 插入数据库
+            query = f"INSERT INTO users VALUES ('{user_id}', '{user_data.get('name')}')"
+            self.database.execute(query)
+            
+            # 清除相关缓存
+            cache_key = f"user:{user_id}"
+            self.cache.delete(cache_key)
+            
+            self.logger.log("INFO", f"用户 {user_id} 创建成功")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"创建用户失败: {e}")
+            return False
 
-class RectangleABC(DrawableABC):
-    """必须显式继承DrawableABC"""
+class NotificationService:
+    """通知服务 - 依赖于UserService和Logger"""
     
-    def __init__(self, width: float, height: float):
-        self.width = width
-        self.height = height
+    def __init__(self, user_service: UserService, logger: Logger):
+        self.user_service = user_service
+        self.logger = logger
+        self.logger.log("INFO", "NotificationService 初始化完成")
     
-    def draw(self) -> str:
-        return f"ABC矩形: {self.width} x {self.height}"
-    
-    def get_area(self) -> float:
-        return self.width * self.height
+    def send_notification(self, user_id: str, message: str) -> bool:
+        """发送通知"""
+        self.logger.debug(f"发送通知给用户 {user_id}")
+        
+        # 获取用户信息
+        user = self.user_service.get_user(user_id)
+        
+        if user:
+            # 模拟发送通知
+            email = user.get("email")
+            self.logger.log("INFO", f"通知已发送到 {email}: {message}")
+            return True
+        else:
+            self.logger.error(f"用户 {user_id} 不存在，无法发送通知")
+            return False
 
-# Protocol方式 - 结构化类型（已在上面定义）
+# =============================================================================
+# 5. 依赖注入装饰器
+# =============================================================================
 
-def demonstrate_abc_vs_protocol():
-    """演示ABC vs Protocol的区别"""
-    print("=== ABC vs Protocol 对比 ===\n")
+def inject(container: DIContainer):
+    """依赖注入装饰器
     
-    # ABC方式
-    abc_rect = RectangleABC(5, 3)
-    print(f"ABC矩形: {abc_rect.draw()}")
-    print(f"是DrawableABC的实例: {isinstance(abc_rect, DrawableABC)}")
+    自动注入函数参数中的依赖服务
+    """
+    def decorator(func: Callable) -> Callable:
+        return container.resolve_dependencies(func)
     
-    # Protocol方式
-    protocol_rect = Rectangle(5, 3)
-    print(f"Protocol矩形: {protocol_rect.draw()}")
-    print(f"符合Drawable协议: {hasattr(protocol_rect, 'draw') and hasattr(protocol_rect, 'get_area')}")
-    
-    # 关键区别：Protocol不需要显式继承
-    print(f"\nABC需要显式继承: {issubclass(RectangleABC, DrawableABC)}")
-    print(f"Protocol基于结构: Rectangle没有继承任何抽象基类")
+    return decorator
 
 # =============================================================================
 # 6. 演示函数
 # =============================================================================
 
-def demonstrate_protocol_basics():
-    """演示Protocol基础用法"""
-    print("=== Protocol基础演示 ===\n")
+def demonstrate_basic_di():
+    """演示基础依赖注入"""
+    print("=== 基础依赖注入演示 ===\n")
     
-    # 1. 创建符合协议的对象
-    rect = Rectangle(4, 3)
-    circle = Circle(2.5)
-    triangle = Triangle(4, 3)
+    # 1. 创建容器并注册服务
+    container = DIContainer()
     
-    shapes = [rect, circle, triangle]
+    # 注册服务（单例模式）
+    container.register("logger", ConsoleLogger("DEBUG"), singleton=True)
+    container.register("database", SQLiteDatabase("app.db"), singleton=True)
+    container.register("cache", MemoryCache(), singleton=True)
     
-    print("1. 测试Drawable协议:")
-    for shape in shapes:
-        result = draw_shape(shape)  # 所有形状都符合Drawable协议
-        print(f"  {result}\n")
+    print("1. 手动依赖注入:")
     
-    # 2. 测试Resizable协议
-    print("2. 测试Resizable协议:")
-    resizable_shapes = [rect, circle]  # triangle不支持resize
+    # 2. 手动获取依赖并创建服务
+    logger = container.get("logger")
+    database = container.get("database")
+    cache = container.get("cache")
     
-    for shape in resizable_shapes:
-        print(f"  调整 {type(shape).__name__}:")
-        resize_shape(shape, 1.5)
-        print()
+    user_service = UserService(logger, database, cache)
     
-    # 3. 尝试调整不支持resize的形状
-    print("3. 尝试调整不支持resize的形状:")
-    try:
-        resize_shape(triangle, 1.5)  # 这在类型检查时会警告
-    except AttributeError as e:
-        print(f"  ❌ 错误: {e}")
+    # 3. 测试业务功能
+    user_data = {"id": "001", "name": "Alice", "email": "alice@test.com"}
+    user_service.create_user(user_data)
+    
+    retrieved_user = user_service.get_user("001")
+    print(f"获取的用户: {retrieved_user}")
+    
+    # 再次获取，应该命中缓存
+    cached_user = user_service.get_user("001")
 
-def demonstrate_runtime_checkable():
-    """演示runtime_checkable Protocol"""
-    print(f"\n=== Runtime Checkable Protocol演示 ===\n")
+def demonstrate_factory_injection():
+    """演示工厂注入模式"""
+    print(f"\n=== 工厂注入演示 ===\n")
     
-    user = User("Alice", 25)
-    product = Product("Laptop", 999.99)
+    container = DIContainer()
     
-    print("1. 运行时协议检查:")
-    objects = [user, product]
+    # 使用工厂函数注册服务
+    container.register_factory("file_logger", lambda: FileLogger("app.log", "DEBUG"))
+    container.register_factory("sqlite_db", lambda: SQLiteDatabase("factory.db"))
+    container.register_factory("memory_cache", lambda: MemoryCache())
     
-    for obj in objects:
-        print(f"  检查 {type(obj).__name__}:")
-        result = handle_serializable_object(obj)
-        if result:
-            print(f"    序列化结果: {result}")
-        print()
+    print("1. 工厂模式创建服务:")
+    logger1 = container.get("file_logger")
+    logger2 = container.get("file_logger")  # 每次都创建新实例
     
-    # 2. isinstance检查
-    print("2. isinstance检查结果:")
-    print(f"  user instanceof Serializable: {isinstance(user, Serializable)}")
-    print(f"  product instanceof Serializable: {isinstance(product, Serializable)}")
+    print(f"logger1 == logger2: {logger1 is logger2}")  # False，不是单例
+    
+    # 修复：注册为单例时也要提供工厂函数
+    print("\n2. 单例模式创建服务:")
+    container.register_factory("singleton_logger", lambda: FileLogger("singleton.log", "INFO"))
+    
+    # 手动标记为单例
+    container._singletons["singleton_logger"] = None
+    
+    logger3 = container.get("singleton_logger")
+    logger4 = container.get("singleton_logger")  # 返回同一实例
+    
+    print(f"logger3 == logger4: {logger3 is logger4}")  # True，是单例
+    
+    # 更好的解决方案：改进register方法
+    print("\n3. 改进的注册方法:")
+    
+    # 方案1：注册实例（推荐用于单例）
+    singleton_instance = FileLogger("better_singleton.log", "DEBUG")
+    container.register("better_singleton", singleton_instance, singleton=True)
+    
+    better1 = container.get("better_singleton")
+    better2 = container.get("better_singleton")
+    print(f"better1 == better2: {better1 is better2}")  # True
+    
+    # 方案2：注册带参数的工厂
+    def create_logger_with_config():
+        return FileLogger("configured.log", "WARNING")
+    
+    container.register_factory("configured_logger", create_logger_with_config)
+    configured = container.get("configured_logger")
+    print(f"配置日志器创建成功: {configured.filename}")
+    
+    # 方案3：使用偏函数
+    from functools import partial
+    logger_factory = partial(FileLogger, filename="partial.log", level="ERROR")
+    container.register_factory("partial_logger", logger_factory)
+    partial_logger = container.get("partial_logger")
+    print(f"偏函数日志器创建成功: {partial_logger.filename}")
 
-def demonstrate_complex_protocols():
-    """演示复杂Protocol用法"""
-    print(f"\n=== 复杂Protocol用法演示 ===\n")
+def demonstrate_automatic_injection():
+    """演示自动依赖注入"""
+    print(f"\n=== 自动依赖注入演示 ===\n")
     
-    rect = Rectangle(4, 3)
-    triangle = Triangle(4, 3)
+    container = DIContainer()
     
-    shapes = [rect, triangle]
+    # 注册所有需要的服务
+    container.register("logger", ConsoleLogger("INFO"))
+    container.register("database", SQLiteDatabase("auto.db"))
+    container.register("cache", MemoryCache())
     
-    print("1. 综合协议检查:")
-    for shape in shapes:
-        result = process_drawable_and_resizable(shape)
-        print(f"  {result['type']}:")
-        print(f"    可绘制: {result['drawable']}")
-        print(f"    可调整: {result['resizable']}")
-        if result['drawable']:
-            print(f"    绘制: {result['drawing']}")
-            print(f"    面积: {result['area']}")
-        if result['resizable']:
-            print(f"    尺寸: {result['dimensions']}")
-        print()
+    # 注册UserService（会自动注入依赖）
+    def create_user_service():
+        logger = container.get("logger")
+        database = container.get("database")
+        cache = container.get("cache")
+        return UserService(logger, database, cache)
+    
+    container.register_factory("user_service", create_user_service)
+    
+    # 使用装饰器自动注入
+    @inject(container)
+    def process_user_notification(user_id: str, message: str, user_service: UserService, logger: Logger):
+        """自动注入 user_service 和 logger"""
+        logger.log("INFO", f"处理用户 {user_id} 的通知")
+        
+        user = user_service.get_user(user_id)
+        if user:
+            logger.log("INFO", f"向 {user['email']} 发送: {message}")
+            return True
+        return False
+    
+    print("1. 自动依赖注入测试:")
+    
+    # 创建测试用户
+    user_service = container.get("user_service")
+    user_service.create_user({"id": "002", "name": "Bob", "email": "bob@test.com"})
+    
+    # 调用自动注入的函数（不需要手动传入依赖）
+    success = process_user_notification("002", "欢迎使用我们的服务！")
+    print(f"通知发送成功: {success}")
+
+def demonstrate_service_composition():
+    """演示服务组合"""
+    print(f"\n=== 服务组合演示 ===\n")
+    
+    container = DIContainer()
+    
+    # 注册基础服务
+    container.register("logger", ConsoleLogger("INFO"))
+    container.register("database", SQLiteDatabase("compose.db"))
+    container.register("cache", MemoryCache())
+    
+    # 注册复合服务
+    def create_user_service():
+        return UserService(
+            container.get("logger"),
+            container.get("database"),
+            container.get("cache")
+        )
+    
+    def create_notification_service():
+        return NotificationService(
+            container.get("user_service"),
+            container.get("logger")
+        )
+    
+    container.register_factory("user_service", create_user_service)
+    container.register_factory("notification_service", create_notification_service)
+    
+    print("1. 服务组合测试:")
+    
+    # 获取组合服务
+    notification_service = container.get("notification_service")
+    
+    # 创建用户
+    user_service = container.get("user_service")
+    user_service.create_user({"id": "003", "name": "Charlie", "email": "charlie@test.com"})
+    
+    # 发送通知
+    success = notification_service.send_notification("003", "系统维护通知")
+    print(f"通知服务结果: {success}")
 
 if __name__ == "__main__":
-    demonstrate_protocol_basics()
-    demonstrate_runtime_checkable()
-    demonstrate_complex_protocols()
-    demonstrate_abc_vs_protocol()
+    demonstrate_basic_di()
+    demonstrate_factory_injection()
+    demonstrate_automatic_injection()
+    demonstrate_service_composition()
