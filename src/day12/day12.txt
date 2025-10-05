@@ -1,0 +1,65 @@
+元类
+1.4 元类的实际应用场景
+场景1：单例模式元类
+
+class SingletonMeta(type):
+    """单例模式元类"""
+    _instances = {}
+    
+    def __call__(cls, *args, **kwargs):
+        if cls not in cls._instances:
+            # 第一次创建实例
+            instance = super().__call__(*args, **kwargs)
+            cls._instances[cls] = instance
+        return cls._instances[cls]
+
+class Database(metaclass=SingletonMeta):
+    def __init__(self):
+        print("初始化数据库连接")
+        self.connection = "connected"
+
+# 测试
+db1 = Database()  # 输出：初始化数据库连接
+db2 = Database()  # 不输出（返回已有实例）
+print(db1 is db2)  # True
+
+描述符协议（Descriptor Protocol）
+描述符协议包括：
+
+__get__(self, instance, owner) - 获取属性
+__set__(self, instance, value) - 设置属性
+__delete__(self, instance) - 删除属性
+2.3 实用描述符示例
+示例1：类型验证描述符
+pythonclass TypedProperty:
+    """类型验证描述符"""
+    
+    def __init__(self, name, expected_type):
+        self.name = name
+        self.expected_type = expected_type
+    
+    def __get__(self, instance, owner):
+        if instance is None:
+            return self
+        return instance.__dict__.get(self.name)
+    
+    def __set__(self, instance, value):
+        if not isinstance(value, self.expected_type):
+            raise TypeError(
+                f"{self.name} 必须是 {self.expected_type.__name__} 类型"
+            )
+        instance.__dict__[self.name] = value
+
+class Person:
+    name = TypedProperty('name', str)
+    age = TypedProperty('age', int)
+    
+    def __init__(self, name, age):
+        self.name = name
+        self.age = age
+
+# 测试
+p = Person("Alice", 30)
+print(p.name, p.age)  # Alice 30
+
+# p.age = "thirty"  # TypeError

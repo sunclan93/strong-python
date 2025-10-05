@@ -1,0 +1,17 @@
+属性访问控制与 ORM 实战
+掌握 __getattr__、__setattr__、__getattribute__ 的区别和使用
+理解 Python 属性访问的完整流程
+学会使用 @property 装饰器
+完善 ORM 系统的高级功能
+为第一阶段做总结回顾
+
+
+关键概念速查表
+概念用途关键点__getattr__动态属性属性不存在时调用
+__setattr__属性验证每次设置都调用，注意递归
+__getattribute__完全控制每次访问都调用，谨慎使用
+@property计算属性推荐用于简单场景描述符可复用验证实现 
+__get__/__set__元类控制类创建
+type 的子类
+
+这些知识是区分初级和高级 Python 开发者的关键。元类、描述符、属性访问控制这些内容虽然抽象，但它们是很多框架（如 Django ORM、SQLAlchemy、Pydantic）的基础。
